@@ -334,26 +334,9 @@ def plotWeightedPCF(radii,targetP,wPCF,vmin=0,vmax=8,ax=None,cm='plasma'):
     ax.set_yticklabels([v*(targetP[-1]) for v in tickProps])
     return fig, ax
 
-def topographicalCorrelationMap(pc,labelNameA,labelA,labelNameB,labelB,radiusOfInterest=0.1,maxCorrelationThreshold=5.0,kernelRadius=150,kernelSigma=50,visualiseStages=False):
+
+def TCM_compute_marks(pc, p_A, p_B, labelNameA, labelA, labelNameB, labelB, radiusOfInterest=0.1, visualiseStages=False):
     
-    for labelName in [labelNameA,labelNameB]:
-        labelType = pc.labels[labelName]['Type']
-        if labelType != 'categorical':
-            raise RuntimeError(f'The label {labelName} is not a categorical label.')
-    
-    if labelA not in pc.labels[labelNameA]['categories']:
-        raise RuntimeError(f'The category {labelA} is not associated with the label {labelNameA}.')
-    if labelB not in pc.labels[labelNameB]['categories']:
-        raise RuntimeError(f'The category {labelB} is not associated with the label {labelNameB}.')
-
-    i_A = pc.labels[labelNameA]['labelToInteger'][labelA]
-    i_B = pc.labels[labelNameB]['labelToInteger'][labelB]
-
-    # Points to include A: All points within pc.domain
-    # Points to include B: All points within pc.domain
-    p_A = pc.points[pc.labels[labelNameA]['numericalLabels'] == i_A,:]
-    p_B = pc.points[pc.labels[labelNameB]['numericalLabels'] == i_B,:]
-
     # Get areas around A, calculate pairwise A-B distances
     areas = []
     for i in range(len(p_A)):
@@ -367,15 +350,19 @@ def topographicalCorrelationMap(pc,labelNameA,labelA,labelNameB,labelB,radiusOfI
     BnearA_observed = np.sum(contributions,axis=1)/areas_A # observed per unit area
     marks = BnearA_observed/density_B
     
-    
     if visualiseStages:
         s=100
         plt.figure(figsize=(20,20))
         plt.scatter(p_A[:,0],p_A[:,1],c=marks,cmap='viridis',s=s)
         plt.colorbar()
         plt.gca().axis('equal')
-        
-    # Map PCF interpretation to [-1,1]
+    
+    return marks  
+    
+    
+def topographicalCorrelationMapStep2(marks, p_A, p_B, pc, maxCorrelationThreshold=5.0, kernelRadius=150, kernelSigma=50, visualiseStages=False):
+    
+     # Map PCF interpretation to [-1,1]
     minCorrelationThreshold = 1/maxCorrelationThreshold
     
     transformedMarks = np.copy(marks)
@@ -423,6 +410,96 @@ def topographicalCorrelationMap(pc,labelNameA,labelA,labelNameB,labelB,radiusOfI
         fig, ax = plotTopographicalCorrelationMap(pc,topographicalCorrelationMap.T,ax=None,cmap='RdBu_r',colorbarLimit=l)
     
     return topographicalCorrelationMap.T
+
+       
+
+
+def topographicalCorrelationMap(pc, labelNameA, labelA, labelNameB, labelB, radiusOfInterest=0.1, maxCorrelationThreshold=5.0, kernelRadius=150, kernelSigma=50, visualiseStages=False):
+    
+    for labelName in [labelNameA,labelNameB]:
+        labelType = pc.labels[labelName]['Type']
+        if labelType != 'categorical':
+            raise RuntimeError(f'The label {labelName} is not a categorical label.')
+    
+    if labelA not in pc.labels[labelNameA]['categories']:
+        raise RuntimeError(f'The category {labelA} is not associated with the label {labelNameA}.')
+    if labelB not in pc.labels[labelNameB]['categories']:
+        raise RuntimeError(f'The category {labelB} is not associated with the label {labelNameB}.')
+
+    i_A = pc.labels[labelNameA]['labelToInteger'][labelA]
+    i_B = pc.labels[labelNameB]['labelToInteger'][labelB]
+
+    # Points to include A: All points within pc.domain
+    # Points to include B: All points within pc.domain
+    p_A = pc.points[pc.labels[labelNameA]['numericalLabels'] == i_A,:]
+    p_B = pc.points[pc.labels[labelNameB]['numericalLabels'] == i_B,:]
+
+    
+    marks = TCM_compute_marks(pc, p_A, p_B, labelNameA,labelA,labelNameB,labelB,radiusOfInterest, visualiseStages)
+    
+    T = topographicalCorrelationMapStep2(marks, p_A, p_B, pc, maxCorrelationThreshold, kernelRadius, kernelSigma, visualiseStages)
+
+    return T
+
+
+
+
+def TCM_compute_marks_voronoi(u_s_all, u_id, pc, p_A, p_B, labelNameA, labelA, labelNameB, labelB, k=2, visualiseStages=False):
+    
+    num_observed = 0 # sum of k neighbors
+    num_expected = 0
+    
+    for j in range(1, k+1):
+    
+        num_observed += u_s_all[j]
+        num_expected += u_id[j]
+    
+    
+    # num k neighbors observed / expected number of k neighbors    
+    marks = num_observed/num_expected 
+    
+    
+    if visualiseStages:
+        s=100
+        plt.figure(figsize=(20,20))
+        plt.scatter(p_A[:,0],p_A[:,1],c=marks,cmap='viridis',s=s)
+        plt.colorbar()
+        plt.gca().axis('equal')
+        
+    return marks
+
+
+def topographicalCorrelationMapVoronoi(u_s_all, u_id, pc,labelNameA,labelA,labelNameB,labelB, k=5,maxCorrelationThreshold=5.0,kernelRadius=150,kernelSigma=50,visualiseStages=False):
+    
+    for labelName in [labelNameA,labelNameB]:
+        labelType = pc.labels[labelName]['Type']
+        if labelType != 'categorical':
+            raise RuntimeError(f'The label {labelName} is not a categorical label.')
+    
+    if labelA not in pc.labels[labelNameA]['categories']:
+        raise RuntimeError(f'The category {labelA} is not associated with the label {labelNameA}.')
+    if labelB not in pc.labels[labelNameB]['categories']:
+        raise RuntimeError(f'The category {labelB} is not associated with the label {labelNameB}.')
+
+    i_A = pc.labels[labelNameA]['labelToInteger'][labelA]
+    i_B = pc.labels[labelNameB]['labelToInteger'][labelB]
+
+    # Points to include A: All points within pc.domain
+    # Points to include B: All points within pc.domain
+    p_A = pc.points[pc.labels[labelNameA]['numericalLabels'] == i_A,:]
+    p_B = pc.points[pc.labels[labelNameB]['numericalLabels'] == i_B,:]
+
+    
+    marks = TCM_compute_marks_voronoi(u_s_all, u_id, pc, p_A, p_B, labelNameA,labelA,labelNameB,labelB,k, visualiseStages)
+    
+    T = topographicalCorrelationMapStep2(marks, p_A, p_B, pc, maxCorrelationThreshold, kernelRadius, kernelSigma, visualiseStages)
+
+    return T
+
+
+
+
+
 
 def plotTopographicalCorrelationMap(pc,topographicalCorrelationMap,ax=None,cmap='RdBu_r',colorbarLimit=None):
     from mpl_toolkits.axes_grid1 import make_axes_locatable
